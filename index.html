@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的离线音乐播放器</title>
+    <!-- 引入 Tailwind CSS 进行样式设计 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 FontAwesome 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* 自定义进度条样式 */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+        
+        /* 背景动画 */
+        .bg-animated {
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* 玻璃拟态效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-animated min-h-screen flex items-center justify-center text-white font-sans selection:bg-pink-500 selection:text-white">
+
+    <!-- 主播放器容器 -->
+    <div class="glass p-8 rounded-3xl shadow-2xl w-full max-w-md mx-4 relative overflow-hidden">
+        
+        <!-- 音频可视化 Canvas -->
+        <canvas id="visualizer" class="absolute bottom-0 left-0 w-full h-1/2 opacity-30 pointer-events-none"></canvas>
+
+        <!-- 顶部：当前播放信息 -->
+        <div class="relative z-10 text-center mb-8">
+            <div class="w-32 h-32 mx-auto bg-gradient-to-tr from-pink-500 to-violet-500 rounded-full shadow-lg flex items-center justify-center mb-4 animate-[spin_10s_linear_infinite]" style="animation-play-state: paused;" id="album-art">
+                <i class="fa-solid fa-music text-4xl text-white"></i>
+            </div>
+            <h2 id="track-name" class="text-2xl font-bold truncate px-4">内置演示音频</h2>
+            <p id="track-artist" class="text-gray-300 text-sm mt-1">本地播放器</p>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="relative z-10 mb-6">
+            <div class="flex justify-between text-xs text-gray-300 mb-1">
+                <span id="current-time">0:00</span>
+                <span id="duration">0:00</span>
+            </div>
+            <input type="range" id="progress" value="0" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <!-- 控制按钮 -->
+        <div class="relative z-10 flex items-center justify-center gap-8 mb-6">
+            <!-- 导入文件按钮 -->
+            <button onclick="document.getElementById('file-upload').click()" class="text-gray-300 hover:text-white transition transform hover:scale-110" title="导入本地 MP3">
+                <i class="fa-solid fa-folder-open text-xl"></i>
+            </button>
+            <input type="file" id="file-upload" accept="audio/*" class="hidden">
+
+            <!-- 播放/暂停 -->
+            <button id="play-btn" class="w-16 h-16 bg-white text-pink-600 rounded-full flex items-center justify-center shadow-lg hover:bg-gray-100 transition transform hover:scale-105 active:scale-95">
+                <i class="fa-solid fa-play text-2xl ml-1" id="play-icon"></i>
+            </button>
+
+            <!-- 重新开始 -->
+            <button id="restart-btn" class="text-gray-300 hover:text-white transition transform hover:scale-110">
+                <i class="fa-solid fa-rotate-right text-xl"></i>
+            </button>
+        </div>
+
+        <!-- 音量控制 -->
+        <div class="relative z-10 flex items-center justify-center gap-3 px-8">
+            <i class="fa-solid fa-volume-low text-gray-300 text-xs"></i>
+            <input type="range" id="volume" min="0" max="1" step="0.1" value="0.8" class="w-full">
+            <i class="fa-solid fa-volume-high text-gray-300 text-xs"></i>
+        </div>
+    </div>
+
+    <!-- 这里的 Base64 音频是一个简短的提示音，作为默认演示内容 -->
+    <!-- 真实场景下，长 MP3 转换成 Base64 会导致 HTML 文件过大，建议使用下方的文件上传功能 -->
+    <audio id="audio-player" crossorigin="anonymous">
+        <source src="data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA//////////////////////////////////////////////////////////////////8AAAA9TEFNRTMuMTAwA78AAAAAAAAAABQkJAAACAAAAnEAAq1VAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQxAAACkQNgAAABAAACExHAAAALSw0QAAAAEAAITDcAAAARAAAqAAAEAAQBAJAAgCAQAA//7kMQAAAp0DUAAAAQAAAhMRwAAAC0sNQAAAAEAAITDcAAAARAAACgAAQABAEAkACAIBAAD/+5DEAAAKZA1AAAAEAAITDcAAAAtLDUAAAABAACEw3AAABEAAAKAAABAEAkACAIBAAD" type="audio/mp3">
+    </audio>
+
+    <script>
+        // DOM 元素获取
+        const audio = document.getElementById('audio-player');
+        const playBtn = document.getElementById('play-btn');
+        const playIcon = document.getElementById('play-icon');
+        const progress = document.getElementById('progress');
+        const volume = document.getElementById('volume');
+        const currentTimeEl = document.getElementById('current-time');
+        const durationEl = document.getElementById('duration');
+        const fileUpload = document.getElementById('file-upload');
+        const trackName = document.getElementById('track-name');
+        const trackArtist = document.getElementById('track-artist');
+        const albumArt = document.getElementById('album-art');
+        const restartBtn = document.getElementById('restart-btn');
+
+        // 音频上下文 (用于可视化)
+        let audioContext;
+        let analyser;
+        let source;
+        let isContextSetup = false;
+
+        // 初始化可视化效果
+        function setupAudioContext() {
+            if (isContextSetup) return;
+            
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                source = audioContext.createMediaElementSource(audio);
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+                analyser.fftSize = 256;
+                isContextSetup = true;
+                drawVisualizer();
+            } catch (e) {
+                console.log("Audio Context blocked until user interaction");
+            }
+        }
+
+        // 播放/暂停逻辑
+        playBtn.addEventListener('click', () => {
+            setupAudioContext();
+            
+            // 恢复 AudioContext (浏览器策略要求用户交互后才能恢复)
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
+            if (audio.paused) {
+                audio.play();
+                updatePlayIcon(true);
+                albumArt.style.animationPlayState = 'running';
+            } else {
+                audio.pause();
+                updatePlayIcon(false);
+                albumArt.style.animationPlayState = 'paused';
+            }
+        });
+
+        function updatePlayIcon(isPlaying) {
+            if (isPlaying) {
+                playIcon.classList.remove('fa-play');
+                playIcon.classList.add('fa-pause');
+            } else {
+                playIcon.classList.remove('fa-pause');
+                playIcon.classList.add('fa-play');
+            }
+        }
+
+        // 处理文件上传
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                // 创建本地 URL
+                const fileURL = URL.createObjectURL(file);
+                audio.src = fileURL;
+                
+                // 更新 UI 信息
+                trackName.textContent = file.name.replace(/\.[^/.]+$/, ""); // 去掉扩展名
+                trackArtist.textContent = "本地导入";
+                
+                // 重置状态
+                audio.load();
+                setupAudioContext();
+                if (audioContext) audioContext.resume();
+                
+                // 自动播放
+                audio.play()
+                    .then(() => {
+                        updatePlayIcon(true);
+                        albumArt.style.animationPlayState = 'running';
+                    })
+                    .catch(err => console.error("播放失败:", err));
+            }
+        });
+
+        // 重新播放
+        restartBtn.addEventListener('click', () => {
+            audio.currentTime = 0;
+            if (audio.paused) {
+                audio.play();
+                updatePlayIcon(true);
+                albumArt.style.animationPlayState = 'running';
+            }
+        });
+
+        // 进度条更新
+        audio.addEventListener('timeupdate', () => {
+            const percent = (audio.currentTime / audio.duration) * 100;
+            progress.value = percent || 0;
+            currentTimeEl.textContent = formatTime(audio.currentTime);
+            if (!isNaN(audio.duration)) {
+                durationEl.textContent = formatTime(audio.duration);
+            }
+            // 更新进度条背景色以显示进度
+            const val = progress.value;
+            progress.style.background = `linear-gradient(to right, #ffffff 0%, #ffffff ${val}%, rgba(255,255,255,0.3) ${val}%, rgba(255,255,255,0.3) 100%)`;
+        });
+
+        // 拖动进度条
+        progress.addEventListener('input', (e) => {
+            const time = (e.target.value / 100) * audio.duration;
+            audio.currentTime = time;
+        });
+
+        // 音量控制
+        volume.addEventListener('input', (e) => {
+            audio.volume = e.target.value;
+        });
+
+        // 音频加载完成
+        audio.addEventListener('loadedmetadata', () => {
+            durationEl.textContent = formatTime(audio.duration);
+        });
+
+        // 播放结束
+        audio.addEventListener('ended', () => {
+            updatePlayIcon(false);
+            progress.value = 0;
+            albumArt.style.animationPlayState = 'paused';
+        });
+
+        // 格式化时间
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        // 绘制可视化效果
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+        
+        function drawVisualizer() {
+            if (!analyser) return;
+
+            requestAnimationFrame(drawVisualizer);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 适配 Canvas 尺寸
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            const WIDTH = canvas.width;
+            const HEIGHT = canvas.height;
+
+            canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+
+            const barWidth = (WIDTH / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = dataArray[i] / 2; // 缩放高度
+
+                // 绘制柱状图，颜色为半透明白
+                canvasCtx.fillStyle = `rgba(255, 255, 255, ${dataArray[i]/255})`;
+                canvasCtx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
+
+                x += barWidth + 1;
+            }
+        }
+    </script>
+</body>
+</html>
